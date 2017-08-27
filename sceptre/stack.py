@@ -152,10 +152,13 @@ class Stack(object):
         :rtype: str
         """
         if self._template is None:
-            abs_template_path = os.path.join(
-                self.environment_config.sceptre_dir,
-                self.config["template_path"],
-            )
+            if self.config["template_path"].startswith("https"):
+                abs_template_path = self.config["template_path"]
+            else:
+                abs_template_path = os.path.join(
+                    self.environment_config.sceptre_dir,
+                    self.config["template_path"],
+                )
 
             self._template = Template(
                 path=abs_template_path,
