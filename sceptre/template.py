@@ -16,6 +16,8 @@ import threading
 
 import botocore
 import jinja2
+import requests
+from aws_requests_auth.aws_auth import AWSRequestsAuth
 from .exceptions import UnsupportedTemplateFileTypeError
 from .exceptions import TemplateSceptreHandlerError
 
@@ -60,26 +62,29 @@ class Template(object):
         :rtype: str
         """
         if self._body is None:
-            file_extension = os.path.splitext(self.path)[1]
-
-            if file_extension in {".json", ".yaml"}:
-                with open(self.path) as template_file:
-                    self._body = template_file.read()
-            elif file_extension == ".j2":
-                self._body = self._render_jinja_template(
-                    os.path.dirname(self.path),
-                    os.path.basename(self.path),
-                    {"sceptre_user_data": self.sceptre_user_data}
-                )
-            elif file_extension == ".py":
-                self._body = self._call_sceptre_handler()
-
+            if self.path.startswith("https"):
+                self._body = self._download_template(self.path)
             else:
-                raise UnsupportedTemplateFileTypeError(
-                    "Template has file extension %s. Only .py, .yaml, "
-                    ".json and .j2 are supported.",
-                    os.path.splitext(self.path)[1]
-                )
+                file_extension = os.path.splitext(self.path)[1]
+
+                if file_extension in {".json", ".yaml"}:
+                    with open(self.path) as template_file:
+                        self._body = template_file.read()
+                elif file_extension == ".j2":
+                    self._body = self._render_jinja_template(
+                        os.path.dirname(self.path),
+                        os.path.basename(self.path),
+                        {"sceptre_user_data": self.sceptre_user_data}
+                    )
+                elif file_extension == ".py":
+                    self._body = self._call_sceptre_handler()
+
+                else:
+                    raise UnsupportedTemplateFileTypeError(
+                        "Template has file extension %s. Only .py, .yaml, "
+                        ".json and .j2 are supported.",
+                        os.path.splitext(self.path)[1]
+                    )
         return self._body
 
     def _call_sceptre_handler(self):
@@ -296,3 +301,24 @@ class Template(object):
         template = env.get_template(filename)
         body = template.render(**jinja_vars)
         return body
+
+    def _download_template(self, url):
+        """
+        Downloads a remote template on a Sceptre Marketplace.
+
+        :param url: The full URL of the file behind an API Gateway.
+        :type url: str
+        :returns: The body of the CloudFormation template.
+        :rtype: string
+        """
+        aws_region = url.split('.')[2]
+        aws_host = url[url.index('/')+2:url.index('.com')+4]
+        print "Downloading from host {0} on region {1}".format(aws_host, aws_region)
+        auth = AWSRequestsAuth(aws_access_key=os.environ['AWS_ACCESS_KEY_ID'],
+                       aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'],
+                       aws_host=aws_host,
+                       aws_region=aws_region,
+                       aws_service='execute-api')
+        response = requests.get(url, auth=auth)
+
+        return response.text
