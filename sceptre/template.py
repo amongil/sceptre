@@ -311,6 +311,7 @@ class Template(object):
         :returns: The body of the CloudFormation template.
         :rtype: string
         """
+        # TODO: make this prettier
         aws_region = url.split('.')[2]
         aws_host = url[url.index('/')+2:url.index('.com')+4]
         print "Downloading from host {0} on region {1}".format(aws_host, aws_region)
