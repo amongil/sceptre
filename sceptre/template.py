@@ -63,7 +63,17 @@ class Template(object):
         """
         if self._body is None:
             if self.path.startswith("https"):
-                self._body = self._download_template(self.path)
+                char_body = self._download_template(self.path)
+                if char_body.startswith("# -*- coding: utf-8 -*-"):
+                    char_body = char_body[char_body.index('\n')+1:]
+                file_extension = os.path.splitext(self.path)[1]
+                if file_extension == ".py":
+                    try:
+                        module = imp.new_module('module')
+                        exec char_body in module.__dict__
+                        self._body = module.sceptre_handler(self.sceptre_user_data)
+                    except AttributeError as e:
+                            raise e
             else:
                 file_extension = os.path.splitext(self.path)[1]
 
@@ -314,7 +324,6 @@ class Template(object):
         # TODO: make this prettier
         aws_region = url.split('.')[2]
         aws_host = url[url.index('/')+2:url.index('.com')+4]
-        print "Downloading from host {0} on region {1}".format(aws_host, aws_region)
         auth = AWSRequestsAuth(aws_access_key=os.environ['AWS_ACCESS_KEY_ID'],
                        aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'],
                        aws_host=aws_host,
