@@ -66,13 +66,23 @@ class Template(object):
                 char_body = self._download_template(self.path)
                 if char_body.startswith("# -*- coding: utf-8 -*-"):
                     char_body = char_body[char_body.index('\n')+1:]
+
                 file_extension = os.path.splitext(self.path)[1]
-                if file_extension == ".py":
+
+                if file_extension in {".json", ".yaml"}:
+                    self._body = char_body
+                elif file_extension == ".py":
                     try:
                         module = imp.new_module('module')
                         exec char_body in module.__dict__
                         self._body = module.sceptre_handler(self.sceptre_user_data)
                     except AttributeError as e:
+                        if 'sceptre_handler' in e.message:
+                            raise TemplateSceptreHandlerError(
+                                "The template does not have the required "
+                                "'sceptre_handler(sceptre_user_data)' function."
+                            )
+                        else:
                             raise e
             else:
                 file_extension = os.path.splitext(self.path)[1]
