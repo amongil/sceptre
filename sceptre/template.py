@@ -64,45 +64,17 @@ class Template(object):
         if self._body is None:
             if self.path.startswith("https"):
                 char_body = self._download_template(self.path)
-                if char_body.startswith("# -*- coding: utf-8 -*-"):
-                    char_body = char_body[char_body.index('\n')+1:]
-
                 file_extension = os.path.splitext(self.path)[1]
 
                 if file_extension in {".json", ".yaml"}:
                     self._body = char_body
+                elif file_extension == ".j2":
+                    self._body = self._remote_render_jinja_template(
+                        char_body,
+                        {"sceptre_user_data": self.sceptre_user_data}
+                    )
                 elif file_extension == ".py":
-                    try:
-                        # Get relative path as list between current working directory and where
-                        # the template is
-                        # NB: this is a horrible hack...
-                        # relpath = os.path.relpath("/Users/alvaromongil/Documents/projects/sceptre-development/sceptre-marketplace/templates/", os.getcwd()).split(os.path.sep)
-                        # relpaths_to_add = [
-                        #     os.path.sep.join(relpath[:i+1])
-                        #     for i in range(len(relpath[:-1]))
-                        # ]
-                        # Add any directory between the current working directory and where
-                        # the template is to the python path
-                        # for directory in relpaths_to_add:
-                        #     sys.path.append(os.path.join(os.getcwd(), directory))
-                        sys.path.append(os.getcwd()+"/templates")
-
-
-                        #imp.load_source("constants", "/Users/alvaromongil/Documents/projects/sceptre-development/sceptre-marketplace/templates/constants.py")
-                        module = imp.new_module('module')
-                        exec char_body in module.__dict__
-                        #  for directory in relpaths_to_add:
-                        #     sys.path.remove(os.path.join(os.getcwd(), directory))
-                        sys.path.remove(os.getcwd()+"/templates")
-                        self._body = module.sceptre_handler(self.sceptre_user_data)
-                    except AttributeError as e:
-                        if 'sceptre_handler' in e.message:
-                            raise TemplateSceptreHandlerError(
-                                "The template does not have the required "
-                                "'sceptre_handler(sceptre_user_data)' function."
-                            )
-                        else:
-                            raise e
+                    self._body = self._remote_call_sceptre_handler(char_body)
             else:
                 file_extension = os.path.splitext(self.path)[1]
 
@@ -361,3 +333,57 @@ class Template(object):
         response = requests.get(url, auth=auth)
 
         return response.text
+
+    def _remote_call_sceptre_handler(self, char_body):
+        """
+        Calls the function `sceptre_handler` within remote templates that are python
+        scripts.
+
+        :returns: The string returned from sceptre_handler in the template.
+        :rtype: str
+        :raises: TemplateSceptreHandlerError
+        """
+        try:
+            # Remove the unicode encoding line so we can exec the module later on
+            if char_body.startswith("# -*- coding: utf-8 -*-"):
+                char_body = char_body[char_body.index('\n')+1:]
+
+            # Add templates path to the python path so the remote
+            # template can import local templates
+            sys.path.append(os.getcwd()+"/templates")
+            module = imp.new_module('module')
+            exec char_body in module.__dict__
+            body = module.sceptre_handler(self.sceptre_user_data)
+        except AttributeError as e:
+            if 'sceptre_handler' in e.message:
+                raise TemplateSceptreHandlerError(
+                    "The template does not have the required "
+                    "'sceptre_handler(sceptre_user_data)' function."
+                )
+            else:
+                raise e
+
+        sys.path.remove(os.getcwd()+"/templates")
+        return body
+
+    def _remote_render_jinja_template(self, char_body, jinja_vars):
+        """
+        Renders a remote jinja template.
+
+        Sceptre supports passing sceptre_user_data to JSON and YAML
+        CloudFormation templates using Jinja2 templating.
+
+        :param char_body: The template file as a string.
+        :type char_body: str
+        :param jinja_vars: Dict of variables to render into the template.
+        :type jinja_vars: dict
+        :returns: The body of the CloudFormation template.
+        :rtype: string
+        """
+        env = jinja2.Environment(
+            undefined=jinja2.StrictUndefined
+        )
+        template = env.from_string(char_body)
+        body = template.render(self.sceptre_user_data)
+
+        return body
